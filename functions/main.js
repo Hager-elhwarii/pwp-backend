@@ -23,7 +23,7 @@ const sessionMiddleware = session({
 })
 
 app.use(cors({
-  origin: ['http://localhost:5173', 'https://play-with-points.netlify.app'],
+  origin: true,
   credentials: true,
 }))
 app.use(express.json())
@@ -34,7 +34,7 @@ app.get('/', (req, res) => res.json({ status: 'ok', message: 'PWP backend is run
 app.use((req, res) => res.status(404).json({ error: 'Not Found' }))
 
 const io = new Server(httpServer, {
-  cors: { origin: ['http://localhost:5173', 'https://play-with-points.netlify.app',"*", 'https://play-with-points.netlify.app']},
+  cors: { origin: true, credentials: true },
 })
 
 io.use((socket, next) => sessionMiddleware(socket.request, socket.request.res || {}, next))

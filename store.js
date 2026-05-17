@@ -1,5 +1,16 @@
 const tournaments = [
   {
+    id: 3,
+    name: 'AirHockey',
+    image: '/images/airHocky.png',
+    entryFee: 60,
+    currency: 'Points',
+    players: 4,
+    status: 'ongoing',
+    description: 'AirHockey brings high-speed action and close competition.',
+    disabled:false,
+  },
+  {
     id: 1,
     name: 'Head Ball',
     image: '/images/ballHead.png',
@@ -8,6 +19,7 @@ const tournaments = [
     players: 4,
     status: 'waiting for players',
     description: 'Head Ball is a fast-paced sports tournament with energy and skill.',
+    disabled:true,
   },
   {
     id: 2,
@@ -18,16 +30,7 @@ const tournaments = [
     players: 4,
     status: 'ongoing',
     description: 'A strategic Dutch Auction tournament where bids drop over time.',
-  },
-  {
-    id: 3,
-    name: 'AirHockey',
-    image: '/images/airHocky.png',
-    entryFee: 60,
-    currency: 'Points',
-    players: 4,
-    status: 'ongoing',
-    description: 'AirHockey brings high-speed action and close competition.',
+    disabled:true,
   },
 ]
 
