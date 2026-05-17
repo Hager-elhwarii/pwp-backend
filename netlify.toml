@@ -2,6 +2,14 @@
   functions = "functions"
   publish = "public"
 
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Access-Control-Allow-Origin = "*"
+    Access-Control-Allow-Methods = "*"
+    Access-Control-Allow-Headers = "*"
+    Access-Control-Allow-Credentials = "true"
+
 [[redirects]]
   from = "/api/*"
   to = "/.netlify/functions/main/:splat"
