@@ -4,16 +4,17 @@
   "private": true,
   "main": "main.js",
   "scripts": {
-    "start": "node main.js",
-    "dev": "nodemon main.js"
+    "start": "node functions/main.js",
+    "dev": "nodemon functions/main.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^5.2.1",
     "express-session": "^1.17.3",
-    "serverless-http": "^4.0.0"
+    "serverless-http": "^4.0.0",
+    "socket.io": "^4.8.3"
   },
   "devDependencies": {
-    "nodemon": "^3.0.1"
+    "nodemon": "^3.1.14"
   }
 }

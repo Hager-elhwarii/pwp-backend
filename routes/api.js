@@ -1,71 +1,26 @@
 const express = require('express')
 const router = express.Router()
+const { tournaments, registrations, matchWinners } = require('../store')
 
-const tournaments = [
-  {
-    id: 1,
-    name: 'Head Ball',
-    image: '/images/ballHead.png',
-    entryFee: 25,
-    currency: 'Points',
-    players: 8,
-    status: 'waiting for players',
-    description: 'Head Ball is a fast-paced sports tournament with energy and skill.',
-  },
-  {
-    id: 2,
-    name: 'Dutch Auction',
-    image: '/images/dutchAuction.png',
-    entryFee: 40,
-    currency: 'Points',
-    players: 8,
-    status: 'ongoing',
-    description: 'A strategic Dutch Auction tournament where bids drop over time.',
-  },
-  {
-    id: 3,
-    name: 'AirHockey',
-    image: '/images/airHocky.png',
-    entryFee: 60,
-    currency: 'Points',
-    players: 16,
-    status: 'ongoing',
-    description: 'AirHockey brings high-speed action and close competition.',
-  },
-]
+let _io = null
+function setIo(io) { _io = io }
 
-const registrations = {}
-
-router.get('/status', (req, res) => {
-  res.json({
-    status: 'ok',
-    uptime: process.uptime(),
-    timestamp: Date.now(),
-  })
-})
-
-router.post('/tournaments', (req, res) => {
-  const { name } = req.body
-  if (!name || typeof name !== 'string' || name.trim().length === 0) {
-    return res.status(400).json({ error: 'Name is required' })
-  }
-  req.session.name = name.trim()
-
-  res.json({
-    user: req.session.name,
-    tournaments,
-  })
-})
+function broadcastBracket(tournamentId) {
+  if (!_io) return
+  const tournament = tournaments.find((t) => String(t.id) === String(tournamentId))
+  if (!tournament) return
+  const bracketData = getBracket(tournamentId, tournament)
+  _io.to(`tournament_${tournamentId}`).emit('bracket_updated', { bracket: bracketData.rounds || [] })
+}
 
 function getRegisteredCount(id) {
   return (registrations[id] || []).length
 }
 
 function tournamentWithRegistration(tournament, userName) {
-  const registeredUsers = (registrations[tournament.id] || []).map((registration) => registration.name)
+  const registeredUsers = (registrations[tournament.id] || []).map((r) => r.name)
   const registeredCount = getRegisteredCount(tournament.id)
   const seatsLeft = Math.max(0, tournament.players - registeredCount)
-
   return {
     ...tournament,
     registeredCount,
@@ -76,50 +31,49 @@ function tournamentWithRegistration(tournament, userName) {
   }
 }
 
-function shuffleArray(array) {
-  const shuffled = [...array]
-  for (let i = shuffled.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
-  }
-  return shuffled
-}
-
-function buildBracket(registeredUsers) {
+function buildBracket(registeredUsers, winners = {}) {
   if (registeredUsers.length < 2) return { rounds: [], seeding: null }
 
   const rounds = []
-  let matches = []
-  let currentPlayers = [...registeredUsers]
+  let matchCounter = 1
+  let prevMatches = []
 
-  for (let i = 0; i < currentPlayers.length; i += 2) {
-    if (i + 1 < currentPlayers.length) {
-      matches.push({
-        id: matches.length + 1,
-        playerA: currentPlayers[i],
-        playerB: currentPlayers[i + 1],
+  // Round 1
+  const r1Matches = []
+  for (let i = 0; i < registeredUsers.length; i += 2) {
+    if (i + 1 < registeredUsers.length) {
+      const id = matchCounter++
+      r1Matches.push({
+        id,
+        playerA: registeredUsers[i],
+        playerB: registeredUsers[i + 1],
+        winner: winners[id] || null,
       })
     }
   }
-  rounds.push({ round: 1, matches })
+  rounds.push({ round: 1, matches: r1Matches })
+  prevMatches = r1Matches
 
-  while (matches.length > 1) {
+  // Subsequent rounds — apply known winners
+  while (prevMatches.length > 1) {
     const nextMatches = []
-    for (let i = 0; i < matches.length; i += 2) {
-      const first = matches[i]
-      const second = matches[i + 1]
+    for (let i = 0; i < prevMatches.length; i += 2) {
+      const first = prevMatches[i]
+      const second = prevMatches[i + 1]
       if (first && second) {
+        const id = matchCounter++
         nextMatches.push({
-          id: nextMatches.length + 1,
-          playerA: `Winner of M${first.id}`,
-          playerB: `Winner of M${second.id}`,
+          id,
+          playerA: winners[first.id] || `Winner of M${first.id}`,
+          playerB: winners[second.id] || `Winner of M${second.id}`,
+          winner: winners[id] || null,
         })
       }
     }
     if (nextMatches.length > 0) {
       rounds.push({ round: rounds.length + 1, matches: nextMatches })
     }
-    matches = nextMatches
+    prevMatches = nextMatches
   }
 
   return {
@@ -131,55 +85,81 @@ function buildBracket(registeredUsers) {
   }
 }
 
+function getBracket(tournamentId, tournament) {
+  const filled = (registrations[tournamentId] || []).map((r) => r.name)
+  const padded = [
+    ...filled,
+    ...Array(Math.max(0, tournament.players - filled.length)).fill(''),
+  ]
+  return buildBracket(padded, matchWinners[tournamentId] || {})
+}
+
+router.get('/status', (req, res) => {
+  res.json({ status: 'ok', uptime: process.uptime(), timestamp: Date.now() })
+})
+
+router.post('/tournaments', (req, res) => {
+  const { name } = req.body
+  if (!name || typeof name !== 'string' || name.trim().length === 0) {
+    return res.status(400).json({ error: 'Name is required' })
+  }
+  req.session.name = name.trim()
+  if (!req.session.points) {
+    req.session.points = Math.floor(Math.random() * 8000) + 2000
+  }
+  res.json({ user: req.session.name, tournaments })
+})
+
 router.get('/tournaments', (req, res) => {
+  const userName = req.session?.name || null
   res.json({
-    user: req.session?.name || null,
-    tournaments: tournaments.map((tournament) => tournamentWithRegistration(tournament, req.session?.name || null)),
+    user: userName,
+    tournaments: tournaments.map((t) => tournamentWithRegistration(t, userName)),
   })
 })
 
 router.post('/register/:id', (req, res) => {
   const { id } = req.params
-  const tournament = tournaments.find((item) => String(item.id) === String(id))
-
-  if (!tournament) {
-    return res.status(404).json({ error: 'Tournament not found' })
-  }
+  const tournament = tournaments.find((t) => String(t.id) === String(id))
+  if (!tournament) return res.status(404).json({ error: 'Tournament not found' })
 
   const userName = req.session?.name
   const sessionId = req.sessionID
-  if (!userName) {
-    return res.status(400).json({ error: 'You must provide a name before registering' })
-  }
+  if (!userName) return res.status(400).json({ error: 'You must provide a name before registering' })
 
   registrations[id] = registrations[id] || []
 
-  if (registrations[id].some((registration) => registration.name === userName)) {
+  if (registrations[id].some((r) => r.name === userName)) {
     return res.status(400).json({ error: 'You are already registered for this tournament' })
   }
-
   if (getRegisteredCount(id) >= tournament.players) {
     return res.status(400).json({ error: 'Tournament is full' })
   }
+  if ((req.session.points || 0) < tournament.entryFee) {
+    return res.status(402).json({
+      error: `Insufficient points. This tournament requires ${tournament.entryFee} points but you only have ${req.session.points || 0}.`,
+    })
+  }
 
+  req.session.points = (req.session.points || 0) - tournament.entryFee
   registrations[id].push({ sessionId, name: userName })
 
   const registeredCount = getRegisteredCount(id)
-  if (registeredCount >= tournament.players) {
-    tournament.status = 'started'
-  }
+  if (registeredCount >= tournament.players) tournament.status = 'started'
 
   res.json({
     tournament: tournamentWithRegistration(tournament, userName),
     registeredCount,
     seatsLeft: Math.max(0, tournament.players - registeredCount),
-    message: registeredCount >= tournament.players ? 'Tournament is now full and will start.' : 'You have been registered successfully.',
+    message: registeredCount >= tournament.players
+      ? 'Tournament is now full and will start.'
+      : 'You have been registered successfully.',
   })
 })
 
 router.get('/tournaments/:id', (req, res) => {
   const { id } = req.params
-  const tournament = tournaments.find((item) => String(item.id) === String(id)) || {
+  const tournament = tournaments.find((t) => String(t.id) === String(id)) || {
     id,
     name: `Tournament ${id}`,
     image: `/images/tournament-${id}.png`,
@@ -201,42 +181,48 @@ router.get('/tournaments/:id', (req, res) => {
   let autoRegistered = false
   let registrationMessage = 'You are already registered for this tournament.'
 
-  const alreadyRegistered = registrations[id].some((registration) => registration.name === userName)
+  const alreadyRegistered = registrations[id].some((r) => r.name === userName)
   if (!alreadyRegistered) {
     if (getRegisteredCount(id) >= tournament.players) {
-      registrationMessage = 'Tournament is full; you cannot be auto-registered.'
+      return res.status(409).json({ error: 'This tournament is full. No more players can join.' })
+    } else if ((req.session.points || 0) < tournament.entryFee) {
+      return res.status(402).json({
+        error: `Insufficient points. This tournament requires ${tournament.entryFee} points but you only have ${req.session.points || 0}.`,
+      })
     } else {
+      req.session.points = (req.session.points || 0) - tournament.entryFee
       registrations[id].push({ sessionId, name: userName })
       autoRegistered = true
-      registrationMessage = 'You have been automatically registered for this tournament.'
+      registrationMessage = `You have been registered. ${tournament.entryFee} points deducted.`
+      broadcastBracket(id)
     }
   }
 
+  const bracketData = getBracket(id, tournament)
   const tournamentPayload = {
     ...tournamentWithRegistration(tournament, userName),
+    bracket: bracketData.rounds || [],
+    seeding: bracketData.seeding,
   }
 
-  const filledUsers = tournamentWithRegistration(tournament, userName).registeredUsers
-  const paddedUsers = [
-    ...filledUsers,
-    ...Array(Math.max(0, tournament.players - filledUsers.length)).fill(''),
-  ]
-  const bracketData = buildBracket(paddedUsers)
-  tournamentPayload.bracket = bracketData.rounds || []
-  tournamentPayload.seeding = bracketData.seeding
+  res.json({ user: userName, autoRegistered, registrationMessage, tournament: tournamentPayload })
+})
 
-  res.json({
-    user: userName,
-    autoRegistered,
-    registrationMessage,
-    tournament: tournamentPayload,
-  })
+router.post('/tournaments/:id/reset', (req, res) => {
+  const { id } = req.params
+  const tournament = tournaments.find((t) => String(t.id) === String(id))
+  if (!tournament) return res.status(404).json({ error: 'Tournament not found' })
+
+  registrations[id] = []
+  if (matchWinners[id]) delete matchWinners[id]
+  tournament.status = 'waiting for players'
+
+  broadcastBracket(id)
+  res.json({ ok: true })
 })
 
 router.get('/session', (req, res) => {
-  res.json({
-    user: req.session?.name || null,
-  })
+  res.json({ user: req.session?.name || null, points: req.session?.points || null })
 })
 
-module.exports = router
+module.exports = { router, getBracket, setIo }
