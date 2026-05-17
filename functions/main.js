@@ -23,7 +23,7 @@ const sessionMiddleware = session({
 })
 
 app.use(cors({
-  origin: ['http://localhost:5173', 'https://play-with-points.netlify.app/'],
+  origin: ['http://localhost:5173', 'https://play-with-points.netlify.app',"*", 'https://play-with-points.netlify.app'],
   credentials: true,
 }))
 app.use(express.json())
